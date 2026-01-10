@@ -182,16 +182,30 @@ def get_skaters_nearby(lat: float, lon: float, user_id: int):
     finally:
         conn.close()
 
-# 3. Nuevo Endpoint para el Switch de Flutter
+# 3. Nuevo Endpoint para el Switch de Flutter (CORREGIDO)
 @app.post("/api/users/status")
 def update_status(data: dict):
     conn = get_db()
     try:
         cur = conn.cursor()
-        cur.execute("UPDATE usuarios SET visible = %s WHERE id_usuario = %s", 
-                   (data['visible'], data['id']))
-        return {"success": True}
+        # 1. Corregimos el nombre de la tabla a 'usuarios'
+        # 2. Agregamos que actualice la ubicación si viene en el paquete
+        if data.get('lat') and data.get('lon'):
+            cur.execute("""
+                UPDATE usuarios 
+                SET visible = %s, 
+                    ubicacion_actual = ST_SetSRID(ST_MakePoint(%s, %s), 4326),
+                    ultima_conexion = NOW()
+                WHERE id_usuario = %s
+            """, (data['visible'], data['lon'], data['lat'], data['id']))
+        else:
+            # Si no hay GPS, al menos cambiamos la visibilidad
+            cur.execute("UPDATE usuarios SET visible = %s WHERE id_usuario = %s", 
+                       (data['visible'], data['id']))
+        
+        return {"success": True, "db_updated": True}
     except Exception as e:
+        print(f"Error en status: {e}")
         raise HTTPException(500, str(e))
     finally:
         conn.close()
