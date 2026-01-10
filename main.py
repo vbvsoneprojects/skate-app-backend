@@ -4,7 +4,6 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from fastapi.middleware.cors import CORSMiddleware
 import os
-import psycopg2
 
 app = FastAPI()
 
@@ -16,26 +15,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. Intentamos leer la URL de Render, si no existe (como en tu PC), usa Neon o Local
+# 1. Configuración de Base de Datos
 DATABASE_URL = os.environ.get('DATABASE_URL', "postgres://neondb_owner:npg_6LqS3tjoUAFC@ep-broad-tree-ah3h6jb0-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require")
 
-
-
-# --- MODELOS ---
+# 2. DEFINICIÓN DE MODELOS (Lo que faltaba)
 class UserAuth(BaseModel):
     username: str
     password: str
 
-class SpotNuevo(BaseModel):
-    nombre: str
-    ubicacion: str
-    tipo: str
-    descripcion: str
-    image: str
+class Coordenadas(BaseModel):
     lat: float
     lon: float
 
-class Coordenadas(BaseModel):
+class PerfilFull(BaseModel):
+    avatar: str = ""
+    edad: int = 0
+    comuna: str = ""
+    crew: str = ""
+    stance: str = "Regular"
+    trayectoria: str = ""
+
+class SpotNuevo(BaseModel):
+    nombre: str
+    tipo: str
+    descripcion: str
+    ubicacion: str
+    image: str
     lat: float
     lon: float
 
@@ -44,17 +49,86 @@ class ComentarioNuevo(BaseModel):
     id_usuario: int
     texto: str
 
-class PerfilFull(BaseModel):
-    avatar: str
-    edad: int
-    comuna: str
-    crew: str
-    stance: str
-    trayectoria: str
+class DueloCreate(BaseModel):
+    challenger_id: int
+    opponent_id: int
+
+class DueloPenalize(BaseModel):
+    id_duelo: int
+    id_perdedor: int
+
+# 3. FUNCIONES DE CONEXIÓN
+def get_db():
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.autocommit = True
+    return conn
+
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    script_sql = """
+    CREATE EXTENSION IF NOT EXISTS postgis;
+
+    CREATE TABLE IF NOT EXISTS public.usuarios (
+        id_usuario serial4 NOT NULL,
+        nickname varchar(50) NOT NULL,
+        "password" text DEFAULT '1234',
+        email varchar(100) DEFAULT 'skater@mail.com',
+        avatar text,
+        edad int4,
+        comuna varchar(100),
+        crew varchar(100),
+        stance varchar(20) DEFAULT 'Regular',
+        trayectoria varchar(50),
+        saldo_puntos int4 DEFAULT 0,
+        ubicacion_actual geometry(point, 4326),
+        es_premium bool DEFAULT false,
+        CONSTRAINT usuarios_nickname_key UNIQUE (nickname),
+        CONSTRAINT usuarios_pkey PRIMARY KEY (id_usuario)
+    );
+
+    CREATE TABLE IF NOT EXISTS public.spots (
+        id_spot serial4 NOT NULL,
+        nombre varchar(100),
+        descripcion text,
+        tipo varchar(50),
+        ubicacion varchar(100),
+        image text,
+        coordenadas geometry(point, 4326),
+        CONSTRAINT spots_pkey PRIMARY KEY (id_spot)
+    );
+
+    CREATE TABLE IF NOT EXISTS public.comentarios (
+        id_comentario serial4 NOT NULL,
+        id_spot int4,
+        id_usuario int4,
+        texto text,
+        fecha timestamp DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT comentarios_pkey PRIMARY KEY (id_comentario)
+    );
+
+    CREATE TABLE IF NOT EXISTS public.duelos (
+        id_duelo serial4 NOT NULL,
+        challenger_id int4,
+        opponent_id int4,
+        letras_actuales varchar(20) DEFAULT '|',
+        estado varchar(20) DEFAULT 'pendiente',
+        ganador varchar(100),
+        fecha_creacion timestamp DEFAULT NOW(),
+        CONSTRAINT duelos_pkey PRIMARY KEY (id_duelo)
+    );
+    """
+    cur.execute(script_sql)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# Iniciar tablas al arrancar
+init_db()
 
 @app.get("/")
 def read_root():
-    return {"mensaje": "API Skate v8.0 - Real Time GPS 🛰️"}
+    return {"mensaje": "API Skate v8.0 - Live en Render 🚀"}
 
 # ==========================================
 # 📡 ZONA GPS (LO NUEVO)
