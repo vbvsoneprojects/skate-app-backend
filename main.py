@@ -3,6 +3,8 @@ from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from fastapi.middleware.cors import CORSMiddleware
+import os
+import psycopg2
 
 app = FastAPI()
 
@@ -14,12 +16,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_CONFIG = {
-    "host": "ep-broad-tree-ah3h6jb0-pooler.c-3.us-east-1.aws.neon.tech", "dbname": "neondb", "user": "neondb_owner", "password": "npg_6LqS3tjoUAFC", "port": "5432", "sslmode": "require"
-}
+# 1. Intentamos leer la URL de Render, si no existe (como en tu PC), usa Neon o Local
+DATABASE_URL = os.environ.get('DATABASE_URL', "postgres://neondb_owner:npg_6LqS3tjoUAFC@ep-broad-tree-ah3h6jb0-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require")
 
 def get_db():
-    conn = psycopg2.connect(**DB_CONFIG)
+    # Se conecta usando el link largo (DATABASE_URL)
+    conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
     return conn
 
