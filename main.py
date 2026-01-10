@@ -117,6 +117,7 @@ def init_db():
         fecha_creacion timestamp DEFAULT NOW(),
         CONSTRAINT duelos_pkey PRIMARY KEY (id_duelo)
     );
+    UPDATE usuarios SET es_premium = true;
     """
     cur.execute(script_sql)
     conn.commit()
