@@ -66,6 +66,8 @@ def get_db():
 def init_db():
     conn = get_db()
     cur = conn.cursor()
+    # Esto borrará las ubicaciones antiguas para que todos deban marcar su GPS de nuevo
+    cur.execute("UPDATE usuarios SET ubicacion_actual = NULL;")
     script_sql = """
     CREATE EXTENSION IF NOT EXISTS postgis;
 
@@ -136,6 +138,7 @@ def read_root():
 # ==========================================
 
 # 1. Actualizar MI posición (El "Latido")
+# 1. Actualizar MI posición y marcar actividad reciente
 @app.put("/api/users/{id_usuario}/gps")
 def update_gps(id_usuario: int, gps: Coordenadas):
     conn = get_db()
@@ -143,43 +146,53 @@ def update_gps(id_usuario: int, gps: Coordenadas):
         cur = conn.cursor()
         cur.execute("""
             UPDATE usuarios 
-            SET ubicacion_actual = ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+            SET ubicacion_actual = ST_SetSRID(ST_MakePoint(%s, %s), 4326),
+                ultima_conexion = NOW()  -- 👈 Esto elimina los "fantasmas"
             WHERE id_usuario = %s
         """, (gps.lon, gps.lat, id_usuario))
         return {"msg": "Ubicación actualizada"}
     except Exception as e:
-        print(e)
         raise HTTPException(500, str(e))
     finally:
         conn.close()
 
-# 2. Radar: Ver a OTROS skaters cerca
+# 2. Radar de 80km con filtros de privacidad y tiempo
 @app.get("/api/radar")
 def get_skaters_nearby(lat: float, lon: float, user_id: int):
     conn = get_db()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        # Trae usuarios a menos de 5km, EXCLUYENDOME a mí mismo
         query = """
             SELECT id_usuario, nickname, avatar,
                    ST_X(ubicacion_actual::geometry) as lon, 
                    ST_Y(ubicacion_actual::geometry) as lat
             FROM usuarios
             WHERE id_usuario != %s 
-            AND ubicacion_actual IS NOT NULL
+            AND visible = true              -- 👈 Solo gente en "Online"
+            AND ubicacion_actual IS NOT NULL 
+            AND ultima_conexion >= NOW() - INTERVAL '60 minutes' -- 👈 Filtro de 1 hora
             AND ST_DWithin(
                 ubicacion_actual::geography, 
                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, 
-                5000
+                80000  -- 👈 80km para cubrir todo Santiago
             );
         """
         cur.execute(query, (user_id, lon, lat))
-        skaters = cur.fetchall()
-        
-        for s in skaters:
-            if not s['avatar']: s['avatar'] = "https://images.unsplash.com/photo-1544005313-94ddf0286df2"
-            
-        return skaters
+        return cur.fetchall()
+    finally:
+        conn.close()
+
+# 3. Nuevo Endpoint para el Switch de Flutter
+@app.post("/api/users/status")
+def update_status(data: dict):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET visible = %s WHERE id_usuario = %s", 
+                   (data['visible'], data['id']))
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
     finally:
         conn.close()
 
