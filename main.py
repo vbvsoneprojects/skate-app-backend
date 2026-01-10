@@ -19,11 +19,7 @@ app.add_middleware(
 # 1. Intentamos leer la URL de Render, si no existe (como en tu PC), usa Neon o Local
 DATABASE_URL = os.environ.get('DATABASE_URL', "postgres://neondb_owner:npg_6LqS3tjoUAFC@ep-broad-tree-ah3h6jb0-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require")
 
-def get_db():
-    # Se conecta usando el link largo (DATABASE_URL)
-    conn = psycopg2.connect(DATABASE_URL)
-    conn.autocommit = True
-    return conn
+
 
 # --- MODELOS ---
 class UserAuth(BaseModel):
