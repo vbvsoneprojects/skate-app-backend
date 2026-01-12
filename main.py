@@ -796,11 +796,6 @@ def penalizar_duelo(pen: DueloPenalize):
         game_over = False
         winner_msg = ""
         
-        # Variable para devolver al frontend (solo las letras de quien perdió esta ronda o el estado general)
-        # En tu App muestras las dos, así que devolvemos el string completo "XXX|YYY" y tú lo separas, 
-        # Ojo: Tu App espera 'letras_actuales' ya separadas o procesadas. 
-        # Para simplificar, devolvemos el estado tal cual y tu App lo pinta.
-        
         if len(c_letters) >= 5 or len(o_letters) >= 5:
             game_over = True
             winner_id = row[2] if is_challenger else row[1]
@@ -818,7 +813,6 @@ def penalizar_duelo(pen: DueloPenalize):
             """, (w_name, winner_id, pen.id_duelo))
             
             # 🏆 ACTUALIZAR ESTADÍSTICAS
-            # Incrementar victorias del ganador
             cur.execute("""
                 UPDATE usuarios 
                 SET total_retos = total_retos + 1,
@@ -826,7 +820,6 @@ def penalizar_duelo(pen: DueloPenalize):
                 WHERE id_usuario = %s
             """, (winner_id,))
             
-            # Incrementar derrotas del perdedor
             cur.execute("""
                 UPDATE usuarios 
                 SET total_retos = total_retos + 1,
@@ -834,18 +827,22 @@ def penalizar_duelo(pen: DueloPenalize):
                 WHERE id_usuario = %s
             """, (loser_id,))
             
-            print(f"📊 Estadísticas actualizadas: Ganador={winner_id}, Perdedor={loser_id}")
+            print(f"📊 Estadísticas actualizadas: Ganador={winner_id} ({w_name}), Perdedor={loser_id}")
+            print(f"🏆 Estado final: {new_state}, Game Over: {game_over}, Ganador: {winner_msg}")
             
-            conn.commit()
+        # IMPORTANTE: Hacer commit ANTES de devolver
+        conn.commit()
 
         return {
-            "letras_actuales": new_state, # Devolvemos "SKA|S"
+            "letras_actuales": new_state,
             "game_over": game_over, 
             "ganador": winner_msg
         }
 
     except Exception as e:
-        print(f"Error penalizar: {e}")
+        print(f"❌ Error penalizar: {e}")
+        import traceback
+        traceback.print_exc()
         return {"letras_actuales": "", "game_over": False} 
     finally:
         conn.close()        
