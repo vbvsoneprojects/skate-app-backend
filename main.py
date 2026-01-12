@@ -808,9 +808,9 @@ def penalizar_duelo(pen: DueloPenalize):
             # Actualizar duelo
             cur.execute("""
                 UPDATE duelos 
-                SET estado = 'finalizado', ganador = %s
+                SET estado = 'finalizado', ganador = %s, ganador_id = %s 
                 WHERE id_duelo = %s
-            """, (w_name, pen.id_duelo))
+            """, (w_name, winner_id, pen.id_duelo))
             
             # 🏆 ACTUALIZAR ESTADÍSTICAS
             cur.execute("""
