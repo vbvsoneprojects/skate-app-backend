@@ -203,6 +203,7 @@ def update_status(data: dict):
             cur.execute("UPDATE usuarios SET visible = %s WHERE id_usuario = %s", 
                        (data['visible'], data['id']))
         
+        conn.commit()  # 🔥 CRÍTICO: Sin esto, nada se guarda en PostgreSQL
         return {"success": True, "db_updated": True}
     except Exception as e:
         print(f"Error en status: {e}")
