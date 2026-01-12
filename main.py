@@ -62,6 +62,14 @@ class MensajeNuevo(BaseModel):
     id_destinatario: int
     texto: str
 
+class ChallengeAccept(BaseModel):
+    id_duelo: int
+    id_usuario: int
+
+class ChallengeReject(BaseModel):
+    id_duelo: int
+    id_usuario: int
+
 # 3. FUNCIONES DE CONEXIÓN
 def get_db():
     conn = psycopg2.connect(DATABASE_URL)
@@ -90,6 +98,11 @@ def init_db():
         saldo_puntos int4 DEFAULT 0,
         ubicacion_actual geometry(point, 4326),
         es_premium bool DEFAULT false,
+        visible bool DEFAULT true,
+        ultima_conexion timestamp,
+        total_retos int4 DEFAULT 0,
+        retos_ganados int4 DEFAULT 0,
+        retos_perdidos int4 DEFAULT 0,
         CONSTRAINT usuarios_nickname_key UNIQUE (nickname),
         CONSTRAINT usuarios_pkey PRIMARY KEY (id_usuario)
     );
@@ -114,6 +127,16 @@ def init_db():
         CONSTRAINT comentarios_pkey PRIMARY KEY (id_comentario)
     );
 
+    CREATE TABLE IF NOT EXISTS public.mensajes (
+        id_mensaje serial4 NOT NULL,
+        id_remitente int4,
+        id_destinatario int4,
+        texto text,
+        leido bool DEFAULT false,
+        fecha_envio timestamp DEFAULT NOW(),
+        CONSTRAINT mensajes_pkey PRIMARY KEY (id_mensaje)
+    );
+
     CREATE TABLE IF NOT EXISTS public.duelos (
         id_duelo serial4 NOT NULL,
         challenger_id int4,
@@ -121,6 +144,7 @@ def init_db():
         letras_actuales varchar(20) DEFAULT '|',
         estado varchar(20) DEFAULT 'pendiente',
         ganador varchar(100),
+        ganador_id int4,
         fecha_creacion timestamp DEFAULT NOW(),
         CONSTRAINT duelos_pkey PRIMARY KEY (id_duelo)
     );
@@ -540,6 +564,159 @@ def crear_duelo(duelo: DueloCreate):
         raise HTTPException(500, str(e))
     finally:
         conn.close()
+
+# ==========================================
+# 🔔 CHALLENGE NOTIFICATIONS
+# ==========================================
+
+@app.get("/api/challenges/pending/{user_id}")
+def get_pending_challenges(user_id: int):
+    """Obtener todos los retos pendientes para un usuario"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                d.id_duelo,
+                d.challenger_id,
+                d.fecha_creacion,
+                u.nickname as challenger_name,
+                u.avatar as challenger_avatar
+            FROM duelos d
+            JOIN usuarios u ON d.challenger_id = u.id_usuario
+            WHERE d.opponent_id = %s 
+              AND d.estado = 'pendiente'
+            ORDER BY d.fecha_creacion DESC
+        """, (user_id,))
+        
+        challenges = cur.fetchall()
+        print(f"🔔 Usuario {user_id} tiene {len(challenges)} retos pendientes")
+        return challenges
+    except Exception as e:
+        print(f"❌ Error obteniendo retos pendientes: {e}")
+        return []
+    finally:
+        conn.close()
+
+@app.post("/api/challenges/accept")
+def accept_challenge(data: ChallengeAccept):
+    """Aceptar un reto"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verificar que el usuario es el oponente del duelo
+        cur.execute("""
+            SELECT challenger_id, opponent_id 
+            FROM duelos 
+            WHERE id_duelo = %s AND estado = 'pendiente'
+        """, (data.id_duelo,))
+        
+        duelo = cur.fetchone()
+        if not duelo:
+            raise HTTPException(404, "Duelo no encontrado o ya fue respondido")
+        
+        if duelo['opponent_id'] != data.id_usuario:
+            raise HTTPException(403, "No tienes permiso para aceptar este duelo")
+        
+        # Actualizar estado a 'en_curso'
+        cur.execute("""
+            UPDATE duelos 
+            SET estado = 'en_curso' 
+            WHERE id_duelo = %s
+        """, (data.id_duelo,))
+        
+        conn.commit()
+        print(f"✅ Reto {data.id_duelo} aceptado por usuario {data.id_usuario}")
+        return {"success": True, "msg": "Reto aceptado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error aceptando reto: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+@app.post("/api/challenges/reject")
+def reject_challenge(data: ChallengeReject):
+    """Rechazar un reto"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verificar que el usuario es el oponente del duelo
+        cur.execute("""
+            SELECT opponent_id 
+            FROM duelos 
+            WHERE id_duelo = %s AND estado = 'pendiente'
+        """, (data.id_duelo,))
+        
+        duelo = cur.fetchone()
+        if not duelo:
+            raise HTTPException(404, "Duelo no encontrado o ya fue respondido")
+        
+        if duelo['opponent_id'] != data.id_usuario:
+            raise HTTPException(403, "No tienes permiso para rechazar este duelo")
+        
+        # Actualizar estado a 'rechazado'
+        cur.execute("""
+            UPDATE duelos 
+            SET estado = 'rechazado' 
+            WHERE id_duelo = %s
+        """, (data.id_duelo,))
+        
+        conn.commit()
+        print(f"❌ Reto {data.id_duelo} rechazado por usuario {data.id_usuario}")
+        return {"success": True, "msg": "Reto rechazado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error rechazando reto: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/users/{id_usuario}/stats")
+def get_user_stats(id_usuario: int):
+    """Obtener estadísticas de retos de un usuario"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                total_retos,
+                retos_ganados,
+                retos_perdidos,
+                CASE 
+                    WHEN total_retos > 0 THEN ROUND((retos_ganados::numeric / total_retos::numeric) * 100, 1)
+                    ELSE 0 
+                END as win_rate
+            FROM usuarios
+            WHERE id_usuario = %s
+        """, (id_usuario,))
+        
+        stats = cur.fetchone()
+        if stats:
+            print(f"📊 Estadísticas usuario {id_usuario}: {stats['total_retos']} retos, {stats['retos_ganados']} ganados")
+            return stats
+        else:
+            return {
+                "total_retos": 0,
+                "retos_ganados": 0,
+                "retos_perdidos": 0,
+                "win_rate": 0
+            }
+    except Exception as e:
+        print(f"❌ Error obteniendo estadísticas: {e}")
+        return {
+            "total_retos": 0,
+            "retos_ganados": 0,
+            "retos_perdidos": 0,
+            "win_rate": 0
+        }
+    finally:
+        conn.close()
+
 # --- MODELO PARA EL CASTIGO ---
 class DueloPenalize(BaseModel):
     id_duelo: int
@@ -596,10 +773,39 @@ def penalizar_duelo(pen: DueloPenalize):
         if len(c_letters) >= 5 or len(o_letters) >= 5:
             game_over = True
             winner_id = row[2] if is_challenger else row[1]
+            loser_id = row[1] if is_challenger else row[2]
+            
             cur.execute("SELECT nickname FROM usuarios WHERE id_usuario = %s", (winner_id,))
             w_name = cur.fetchone()[0]
             winner_msg = f"¡Ganó {w_name}!"
-            cur.execute("UPDATE duelos SET estado = 'FINALIZADO', ganador = %s WHERE id_duelo = %s", (w_name, pen.id_duelo))
+            
+            # Actualizar duelo
+            cur.execute("""
+                UPDATE duelos 
+                SET estado = 'finalizado', ganador = %s, ganador_id = %s 
+                WHERE id_duelo = %s
+            """, (w_name, winner_id, pen.id_duelo))
+            
+            # 🏆 ACTUALIZAR ESTADÍSTICAS
+            # Incrementar victorias del ganador
+            cur.execute("""
+                UPDATE usuarios 
+                SET total_retos = total_retos + 1,
+                    retos_ganados = retos_ganados + 1
+                WHERE id_usuario = %s
+            """, (winner_id,))
+            
+            # Incrementar derrotas del perdedor
+            cur.execute("""
+                UPDATE usuarios 
+                SET total_retos = total_retos + 1,
+                    retos_perdidos = retos_perdidos + 1
+                WHERE id_usuario = %s
+            """, (loser_id,))
+            
+            print(f"📊 Estadísticas actualizadas: Ganador={winner_id}, Perdedor={loser_id}")
+            
+            conn.commit()
 
         return {
             "letras_actuales": new_state, # Devolvemos "SKA|S"
