@@ -57,6 +57,11 @@ class DueloPenalize(BaseModel):
     id_duelo: int
     id_perdedor: int
 
+class MensajeNuevo(BaseModel):
+    id_remitente: int
+    id_destinatario: int
+    texto: str
+
 # 3. FUNCIONES DE CONEXIÓN
 def get_db():
     conn = psycopg2.connect(DATABASE_URL)
@@ -207,6 +212,122 @@ def update_status(data: dict):
         return {"success": True, "db_updated": True}
     except Exception as e:
         print(f"Error en status: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+# ==========================================
+# 💬 SISTEMA DE MENSAJERÍA
+# ==========================================
+
+@app.post("/api/messages")
+def send_message(msg: MensajeNuevo):
+    """Enviar un mensaje de un usuario a otro"""
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO mensajes (id_remitente, id_destinatario, texto)
+            VALUES (%s, %s, %s)
+            RETURNING id_mensaje, fecha_envio
+        """, (msg.id_remitente, msg.id_destinatario, msg.texto))
+        result = cur.fetchone()
+        conn.commit()
+        
+        print(f"💬 Mensaje enviado: User {msg.id_remitente} → User {msg.id_destinatario}")
+        return {
+            "success": True,
+            "id_mensaje": result[0],
+            "fecha_envio": result[1]
+        }
+    except Exception as e:
+        print(f"❌ Error enviando mensaje: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/messages/conversation")
+def get_conversation(user1: int, user2: int):
+    """Obtener todos los mensajes entre dos usuarios"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                m.id_mensaje,
+                m.id_remitente,
+                m.id_destinatario,
+                m.texto,
+                m.leido,
+                m.fecha_envio,
+                u.nickname as remitente_nombre,
+                u.avatar as remitente_avatar
+            FROM mensajes m
+            JOIN usuarios u ON m.id_remitente = u.id_usuario
+            WHERE (id_remitente = %s AND id_destinatario = %s)
+               OR (id_remitente = %s AND id_destinatario = %s)
+            ORDER BY fecha_envio ASC
+        """, (user1, user2, user2, user1))
+        
+        msgs = cur.fetchall()
+        print(f"💬 Conversación User {user1} ↔ User {user2}: {len(msgs)} mensajes")
+        return msgs
+    except Exception as e:
+        print(f"❌ Error obteniendo conversación: {e}")
+        return []
+    finally:
+        conn.close()
+
+@app.get("/api/messages/unread")
+def get_unread_messages(user_id: int):
+    """Obtener mensajes no leídos agrupados por remitente (para notificaciones)"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                id_remitente,
+                u.nickname,
+                u.avatar,
+                COUNT(*) as cantidad,
+                MAX(fecha_envio) as ultimo_mensaje
+            FROM mensajes m
+            JOIN usuarios u ON m.id_remitente = u.id_usuario
+            WHERE id_destinatario = %s AND leido = FALSE
+            GROUP BY id_remitente, u.nickname, u.avatar
+            ORDER BY ultimo_mensaje DESC
+        """, (user_id,))
+        
+        unread = cur.fetchall()
+        total = sum([u['cantidad'] for u in unread])
+        print(f"🔔 User {user_id} tiene {total} mensajes no leídos")
+        return unread
+    except Exception as e:
+        print(f"❌ Error obteniendo no leídos: {e}")
+        return []
+    finally:
+        conn.close()
+
+@app.post("/api/messages/mark_read")
+def mark_as_read(data: dict):
+    """Marcar mensajes como leídos cuando se abre el chat"""
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE mensajes 
+            SET leido = TRUE
+            WHERE id_destinatario = %s 
+              AND id_remitente = %s
+              AND leido = FALSE
+        """, (data['id_destinatario'], data['id_remitente']))
+        conn.commit()
+        
+        updated = cur.rowcount
+        print(f"✅ Marcados {updated} mensajes como leídos")
+        return {"success": True, "updated": updated}
+    except Exception as e:
+        print(f"❌ Error marcando como leído: {e}")
         raise HTTPException(500, str(e))
     finally:
         conn.close()
