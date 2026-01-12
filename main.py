@@ -175,7 +175,7 @@ def get_skaters_nearby(lat: float, lon: float, user_id: int):
             WHERE id_usuario != %s 
             AND visible = true              -- 👈 Solo gente en "Online"
             AND ubicacion_actual IS NOT NULL 
-            AND ultima_conexion >= NOW() - INTERVAL '60 minutes' -- 👈 Filtro de 1 hora
+            AND ultima_conexion >= NOW() - INTERVAL '5 minutes' -- 👈 Solo usuarios activos en los últimos 5 minutos
             AND ST_DWithin(
                 ubicacion_actual::geography, 
                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, 
