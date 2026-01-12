@@ -900,8 +900,54 @@ async def send_message(mensaje: MensajeNuevo):
         print(f"✅ Mensaje enviado: {mensaje.id_remitente} -> {mensaje.id_destinatario}")
         return {"success": True}
     
-    except Exception as e:
         print(f"❌ Error enviando mensaje: {e}")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# ==================== ENDPOINT DE CALIFICACIÓN ====================
+
+class RatingData(BaseModel):
+    id_spot: int
+    id_usuario: int
+    estrellas: int
+
+@app.post("/api/rate/")
+async def rate_spot(rating: RatingData):
+    """Calificar un spot con estrellas (1-5) y recalcular promedio"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Insertar o actualizar calificación del usuario
+        query = """
+            INSERT INTO calificaciones (id_spot, id_usuario, estrellas)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (id_spot, id_usuario) 
+            DO UPDATE SET estrellas = EXCLUDED.estrellas
+        """
+        cur.execute(query, (rating.id_spot, rating.id_usuario, rating.estrellas))
+        
+        # Recalcular promedio del spot
+        avg_query = """
+            UPDATE spots
+            SET promedio = (
+                SELECT AVG(estrellas)::numeric(3,2)
+                FROM calificaciones
+                WHERE id_spot = %s
+            )
+            WHERE id_spot = %s
+        """
+        cur.execute(avg_query, (rating.id_spot, rating.id_spot))
+        
+        conn.commit()
+        print(f"⭐ Spot {rating.id_spot} calificado con {rating.estrellas} estrellas por usuario {rating.id_usuario}")
+        
+        return {"success": True, "message": "Calificación guardada"}
+    
+    except Exception as e:
+        print(f"❌ Error guardando calificación: {e}")
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
