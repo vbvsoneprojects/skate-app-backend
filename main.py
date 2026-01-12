@@ -192,7 +192,7 @@ def get_skaters_nearby(lat: float, lon: float, user_id: int):
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         query = """
-            SELECT id_usuario, nickname, avatar,
+            SELECT id_usuario, nickname, avatar, crew, stance,
                    ST_X(ubicacion_actual::geometry) as longitude, 
                    ST_Y(ubicacion_actual::geometry) as latitude
             FROM usuarios
