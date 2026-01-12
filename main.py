@@ -49,6 +49,15 @@ class ComentarioNuevo(BaseModel):
     id_usuario: int
     texto: str
 
+class MensajeNuevo(BaseModel):
+    id_remitente: int
+    id_destinatario: int
+    texto: str
+
+class ConversacionRequest(BaseModel):
+    id1: int
+    id2: int
+
 class DueloCreate(BaseModel):
     challenger_id: int
     opponent_id: int
@@ -845,4 +854,55 @@ def penalizar_duelo(pen: DueloPenalize):
         traceback.print_exc()
         return {"letras_actuales": "", "game_over": False} 
     finally:
-        conn.close()        
+        conn.close()
+
+# ==================== ENDPOINTS DE MENSAJERÍA ====================
+
+@app.post("/api/messages/conversation")
+async def get_conversation(data: ConversacionRequest):
+    """Obtener mensajes entre dos usuarios"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        query = """
+            SELECT id_mensaje, id_remitente, id_destinatario, texto, fecha_envio, leido
+            FROM mensajes
+            WHERE (id_remitente = %s AND id_destinatario = %s)
+               OR (id_remitente = %s AND id_destinatario = %s)
+            ORDER BY fecha_envio ASC
+        """
+        cur.execute(query, (data.id1, data.id2, data.id2, data.id1))
+        mensajes = cur.fetchall()
+        
+        return mensajes
+    
+    except Exception as e:
+        print(f"❌ Error obteniendo conversación: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.post("/api/messages")
+async def send_message(mensaje: MensajeNuevo):
+    """Enviar un nuevo mensaje"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        query = """
+            INSERT INTO mensajes (id_remitente, id_destinatario, texto, fecha_envio, leido)
+            VALUES (%s, %s, %s, NOW(), FALSE)
+        """
+        cur.execute(query, (mensaje.id_remitente, mensaje.id_destinatario, mensaje.texto))
+        conn.commit()
+        
+        print(f"✅ Mensaje enviado: {mensaje.id_remitente} -> {mensaje.id_destinatario}")
+        return {"success": True}
+    
+    except Exception as e:
+        print(f"❌ Error enviando mensaje: {e}")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
