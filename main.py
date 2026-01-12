@@ -717,6 +717,37 @@ def get_user_stats(id_usuario: int):
     finally:
         conn.close()
 
+@app.get("/api/challenges/status/{id_duelo}")
+def get_challenge_status(id_duelo: int):
+    """Verificar el estado de un duelo específico"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                d.id_duelo,
+                d.estado,
+                d.challenger_id,
+                d.opponent_id,
+                u.nickname as opponent_name
+            FROM duelos d
+            JOIN usuarios u ON d.opponent_id = u.id_usuario
+            WHERE d.id_duelo = %s
+        """, (id_duelo,))
+        
+        duelo = cur.fetchone()
+        if duelo:
+            return duelo
+        else:
+            raise HTTPException(404, "Duelo no encontrado")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error obteniendo estado del duelo: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
 # --- MODELO PARA EL CASTIGO ---
 class DueloPenalize(BaseModel):
     id_duelo: int
