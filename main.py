@@ -477,9 +477,8 @@ def get_spots():
             if spot_dict["imagen"] and "blob:" in spot_dict["imagen"]:
                  spot_dict["imagen"] = "https://images.unsplash.com/photo-1520045864914-894836162391"
 
-            # Buscar comentarios
             cur.execute("""
-                SELECT c.texto, u.nickname, u.avatar
+                SELECT c.texto, u.nickname, u.avatar, c.id_comentario
                 FROM comentarios c
                 JOIN usuarios u ON c.id_usuario = u.id_usuario
                 WHERE c.id_spot = %s
@@ -492,7 +491,8 @@ def get_spots():
                 spot_dict["comments"].append({
                     "texto": c[0],
                     "user": c[1],
-                    "avatar": avatar
+                    "avatar": avatar,
+                    "id": c[3] # ID de comentario para borrar
                 })
             
             spots_list.append(spot_dict)
