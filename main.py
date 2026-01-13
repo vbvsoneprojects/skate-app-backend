@@ -212,7 +212,7 @@ def get_skaters_nearby(lat: float, lon: float, user_id: int):
             AND ST_DWithin(
                 ubicacion_actual::geography, 
                 ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, 
-                80000  -- 👈 80km para cubrir todo Santiago
+                12000000  -- 👈 12.000km para cubrir toda América
             );
         """
         cur.execute(query, (user_id, lon, lat))
