@@ -436,18 +436,22 @@ def get_spots():
         cur = conn.cursor()
         
         # Pedimos 'image' (nombre real en BD)
+        # Pedimos 'image' y calculamos el promedio de estrellas
         cur.execute("""
             SELECT 
-                id_spot, 
-                nombre, 
-                descripcion, 
-                tipo,
-                ubicacion,
-                image,   -- Aqui en SQL sí se usan guiones
-                ST_X(coordenadas::geometry), 
-                ST_Y(coordenadas::geometry)
-            FROM spots 
-            ORDER BY id_spot DESC
+                s.id_spot, 
+                s.nombre, 
+                s.descripcion, 
+                s.tipo,
+                s.ubicacion,
+                s.image,
+                ST_X(s.coordenadas::geometry), 
+                ST_Y(s.coordenadas::geometry),
+                COALESCE(AVG(c.estrellas), 0) as promedio
+            FROM spots s
+            LEFT JOIN calificaciones c ON s.id_spot = c.id_spot
+            GROUP BY s.id_spot
+            ORDER BY s.id_spot DESC
         """)
         rows = cur.fetchall()
         print(f"Spots encontrados en DB: {len(rows)}")
@@ -461,9 +465,10 @@ def get_spots():
                 "descripcion": row[2],
                 "tipo": row[3],
                 "ubicacion": row[4],
-                "imagen": row[5],  # <--- CORREGIDO: Usamos # para comentarios en Python
+                "imagen": row[5],
                 "longitude": row[6],
                 "latitude": row[7],
+                "promedio": float(row[8]),  # <--- NUEVO CAMPO AGREGADO
                 "comments": []
             }
 
