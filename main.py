@@ -384,7 +384,8 @@ def login(user: UserAuth):
                 "avatar": u['avatar'] if u['avatar'] else "",
                 
                 # --- AGREGA ESTAS LÍNEAS NUEVAS ---
-                "es_premium": u['es_premium'] if u['es_premium'] else False, 
+                "es_premium": u['es_premium'] if u['es_premium'] else False,
+                "es_admin": u['es_admin'] if u.get('es_admin') else False,
                 # ----------------------------------
 
                 "edad": u['edad'] if u['edad'] else 0,
@@ -576,6 +577,47 @@ def crear_duelo(duelo: DueloCreate):
     except Exception as e:
         print(f"Error creando duelo: {e}")
         raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+
+# ==========================================
+# 🛡️ ZONA DE ADMIN (NUEVO)
+# ==========================================
+
+@app.delete("/api/spots/{id_spot}")
+def delete_spot(id_spot: int):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        # Borrar comentarios asociados primero
+        cur.execute("DELETE FROM comentarios WHERE id_spot = %s", (id_spot,))
+        # Borrar spot
+        cur.execute("DELETE FROM spots WHERE id_spot = %s", (id_spot,))
+        return {"msg": "Spot eliminado"}
+    finally:
+        conn.close()
+
+@app.delete("/api/comments/{id_comentario}")
+def delete_comment(id_comentario: int):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM comentarios WHERE id_comentario = %s", (id_comentario,))
+        return {"msg": "Comentario eliminado"}
+    finally:
+        conn.close()
+
+class SpotImageUpdate(BaseModel):
+    image: str
+
+@app.put("/api/spots/{id_spot}/image")
+def update_spot_image(id_spot: int, data: SpotImageUpdate):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("UPDATE spots SET image = %s WHERE id_spot = %s", (data.image, id_spot))
+        return {"msg": "Imagen actualizada"}
     finally:
         conn.close()
 
