@@ -1,0 +1,191 @@
+
+# ==========================================
+# 📸 SOCIAL FEED - POSTS API
+# ==========================================
+
+@app.get("/api/posts/")
+def get_posts(offset: int = 0, limit: int = 20):
+    """Obtener posts del feed social (cronológico)"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                p.id_post,
+                p.id_usuario,
+                p.texto,
+                p.imagen,
+                p.tipo,
+                p.likes_count,
+                p.comments_count,
+                p.fecha_creacion,
+                u.nickname as usuario_nombre,
+                u.avatar as usuario_avatar
+            FROM posts p
+            JOIN usuarios u ON p.id_usuario = u.id_usuario
+            ORDER BY p.fecha_creacion DESC
+            LIMIT %s OFFSET %s
+        """, (limit, offset))
+        
+        posts = cur.fetchall()
+        print(f"📸 Obteniendo {len(posts)} posts (offset: {offset}, limit: {limit})")
+        return posts
+    except Exception as e:
+        print(f"❌ Error obteniendo posts: {e}")
+        return []
+    finally:
+        conn.close()
+
+@app.post("/api/posts/")
+def create_post(post: PostNuevo):
+    """Crear un nuevo post en el feed"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            INSERT INTO posts (id_usuario, texto, imagen, tipo)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id_post, fecha_creacion
+        """, (post.id_usuario, post.texto, post.imagen, post.tipo))
+        
+        result = cur.fetchone()
+        conn.commit()
+        
+        print(f"📸 Nuevo post creado: ID={result['id_post']} por usuario {post.id_usuario}")
+        return {
+            "success": True,
+            "id_post": result['id_post'],
+            "fecha_creacion": result['fecha_creacion']
+        }
+    except Exception as e:
+        print(f"❌ Error creando post: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+@app.post("/api/posts/{id_post}/like")
+def toggle_like(id_post: int, like: PostLike):
+    """Dar o quitar like a un post"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verificar si ya existe el like
+        cur.execute("""
+            SELECT id_like FROM post_likes 
+            WHERE id_post = %s AND id_usuario = %s
+        """, (id_post, like.id_usuario))
+        
+        existing_like = cur.fetchone()
+        
+        if existing_like:
+            # Quitar like
+            cur.execute("""
+                DELETE FROM post_likes 
+                WHERE id_post = %s AND id_usuario = %s
+            """, (id_post, like.id_usuario))
+            
+            cur.execute("""
+                UPDATE posts 
+                SET likes_count = likes_count - 1 
+                WHERE id_post = %s
+            """, (id_post,))
+            
+            action = "removido"
+        else:
+            # Agregar like
+            cur.execute("""
+                INSERT INTO post_likes (id_post, id_usuario)
+                VALUES (%s, %s)
+            """, (id_post, like.id_usuario))
+            
+            cur.execute("""
+                UPDATE posts 
+                SET likes_count = likes_count + 1 
+                WHERE id_post = %s
+            """, (id_post,))
+            
+            action = "agregado"
+        
+        conn.commit()
+        print(f"❤️ Like {action}: Post {id_post} por usuario {like.id_usuario}")
+        
+        # Obtener el nuevo conteo
+        cur.execute("SELECT likes_count FROM posts WHERE id_post = %s", (id_post,))
+        new_count = cur.fetchone()['likes_count']
+        
+        return {
+            "success": True,
+            "liked": action == "agregado",
+            "likes_count": new_count
+        }
+    except Exception as e:
+        print(f"❌ Error con like: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+@app.post("/api/posts/{id_post}/comment")
+def add_post_comment(id_post: int, comment: PostComment):
+    """Agregar comentario a un post"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cur.execute("""
+            INSERT INTO post_comments (id_post, id_usuario, texto)
+            VALUES (%s, %s, %s)
+            RETURNING id_comment, fecha
+        """, (id_post, comment.id_usuario, comment.texto))
+        
+        result = cur.fetchone()
+        
+        # Incrementar contador de comentarios
+        cur.execute("""
+            UPDATE posts 
+            SET comments_count = comments_count + 1 
+            WHERE id_post = %s
+        """, (id_post,))
+        
+        conn.commit()
+        
+        print(f"💬 Comentario agregado: Post {id_post} por usuario {comment.id_usuario}")
+        return {
+            "success": True,
+            "id_comment": result['id_comment'],
+            "fecha": result['fecha']
+        }
+    except Exception as e:
+        print(f"❌ Error agregando comentario: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/posts/{id_post}/comments")
+def get_post_comments(id_post: int):
+    """Obtener comentarios de un post"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                c.id_comment,
+                c.id_usuario,
+                c.texto,
+                c.fecha,
+                u.nickname as usuario_nombre,
+                u.avatar as usuario_avatar
+            FROM post_comments c
+            JOIN usuarios u ON c.id_usuario = u.id_usuario
+            WHERE c.id_post = %s
+            ORDER BY c.fecha ASC
+        """, (id_post,))
+        
+        comments = cur.fetchall()
+        print(f"💬 Obteniendo {len(comments)} comentarios para post {id_post}")
+        return comments
+    except Exception as e:
+        print(f"❌ Error obteniendo comentarios: {e}")
+        return []
+    finally:
+        conn.close()
