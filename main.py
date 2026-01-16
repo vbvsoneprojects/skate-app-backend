@@ -9,7 +9,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "*",  # Permitir todos los orígenes (para desarrollo)
+        "https://skate-app-frontend.onrender.com",  # Frontend en producción
+        "http://localhost:*",  # Desarrollo local
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
