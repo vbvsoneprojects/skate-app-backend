@@ -327,7 +327,7 @@ def send_message(msg: MensajeNuevo):
 
 @app.get("/api/messages/conversation")
 def get_conversation(user1: int, user2: int):
-    """Obtener todos los mensajes entre dos usuarios"""
+    """Obtener todos los mensajes entre dos usuarios con timestamps en timezone de Chile"""
     conn = get_db()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -338,7 +338,7 @@ def get_conversation(user1: int, user2: int):
                 m.id_destinatario,
                 m.texto,
                 m.leido,
-                m.fecha_envio,
+                m.fecha_envio AT TIME ZONE 'America/Santiago' as fecha_envio,
                 u.nickname as remitente_nombre,
                 u.avatar as remitente_avatar
             FROM mensajes m
@@ -408,6 +408,58 @@ def mark_as_read(data: dict):
     except Exception as e:
         print(f"❌ Error marcando como leído: {e}")
         raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/messages/conversations/{user_id}")
+def get_user_conversations(user_id: int):
+    """Obtener todas las conversaciones de un usuario con el último mensaje y fecha en timezone de Chile"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Obtenemos todas las conversaciones donde el usuario participó
+        cur.execute("""
+            WITH conversaciones AS (
+                SELECT DISTINCT
+                    CASE 
+                        WHEN id_remitente = %s THEN id_destinatario
+                        ELSE id_remitente
+                    END as otro_usuario_id
+                FROM mensajes
+                WHERE id_remitente = %s OR id_destinatario = %s
+            )
+            SELECT 
+                c.otro_usuario_id,
+                u.nickname,
+                u.avatar,
+                (SELECT texto 
+                 FROM mensajes m 
+                 WHERE (m.id_remitente = %s AND m.id_destinatario = c.otro_usuario_id)
+                    OR (m.id_remitente = c.otro_usuario_id AND m.id_destinatario = %s)
+                 ORDER BY m.fecha_envio DESC 
+                 LIMIT 1) as ultimo_mensaje,
+                (SELECT fecha_envio AT TIME ZONE 'America/Santiago'
+                 FROM mensajes m 
+                 WHERE (m.id_remitente = %s AND m.id_destinatario = c.otro_usuario_id)
+                    OR (m.id_remitente = c.otro_usuario_id AND m.id_destinatario = %s)
+                 ORDER BY m.fecha_envio DESC 
+                 LIMIT 1) as fecha_ultimo_mensaje,
+                (SELECT COUNT(*) 
+                 FROM mensajes m 
+                 WHERE m.id_remitente = c.otro_usuario_id 
+                   AND m.id_destinatario = %s 
+                   AND m.leido = FALSE) as mensajes_no_leidos
+            FROM conversaciones c
+            JOIN usuarios u ON c.otro_usuario_id = u.id_usuario
+            ORDER BY fecha_ultimo_mensaje DESC
+        """, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id))
+        
+        conversations = cur.fetchall()
+        print(f"💬 Usuario {user_id} tiene {len(conversations)} conversaciones")
+        return conversations
+    except Exception as e:
+        print(f"❌ Error obteniendo conversaciones: {e}")
+        return []
     finally:
         conn.close()
 
