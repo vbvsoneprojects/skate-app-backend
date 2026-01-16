@@ -342,7 +342,7 @@ def get_conversation(user1: int, user2: int):
                 m.id_destinatario,
                 m.texto,
                 m.leido,
-                m.fecha_envio AT TIME ZONE 'America/Santiago' as fecha_envio,
+                to_char(m.fecha_envio AT TIME ZONE 'UTC' AT TIME ZONE 'America/Santiago', 'YYYY-MM-DD\"T\"HH24:MI:SS\"−03:00\"') as fecha_envio,
                 u.nickname as remitente_nombre,
                 u.avatar as remitente_avatar
             FROM mensajes m
@@ -442,7 +442,7 @@ def get_user_conversations(user_id: int):
                     OR (m.id_remitente = c.otro_usuario_id AND m.id_destinatario = %s)
                  ORDER BY m.fecha_envio DESC 
                  LIMIT 1) as ultimo_mensaje,
-                (SELECT fecha_envio AT TIME ZONE 'America/Santiago'
+                (SELECT to_char(fecha_envio AT TIME ZONE 'UTC' AT TIME ZONE 'America/Santiago', 'YYYY-MM-DD\"T\"HH24:MI:SS\"−03:00\"')
                  FROM mensajes m 
                  WHERE (m.id_remitente = %s AND m.id_destinatario = c.otro_usuario_id)
                     OR (m.id_remitente = c.otro_usuario_id AND m.id_destinatario = %s)
