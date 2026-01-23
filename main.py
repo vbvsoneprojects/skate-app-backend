@@ -3,6 +3,8 @@ from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import date, datetime, timedelta
+import secrets
 import os
 
 app = FastAPI()
@@ -97,6 +99,20 @@ class PostComment(BaseModel):
     id_post: int
     id_usuario: int
     texto: str
+
+class ClaimRequest(BaseModel):
+    id_usuario: int
+
+class GameStartRequest(BaseModel):
+    id_usuario: int
+
+class ScoreSubmitRequest(BaseModel):
+    session_token: str
+    score: int
+
+class RewardClaimRequest(BaseModel):
+    id_usuario: int
+    id_reward: int
 
 # 3. FUNCIONES DE CONEXIÓN
 def get_db():
@@ -205,6 +221,56 @@ def init_db():
         texto text NOT NULL,
         fecha timestamp DEFAULT NOW(),
         CONSTRAINT post_comments_pkey PRIMARY KEY (id_comment)
+    );
+
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS puntos_actuales int4 DEFAULT 0;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS puntos_historicos int4 DEFAULT 0;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultima_fecha_juego date;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS racha_actual int4 DEFAULT 0;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS mejor_racha int4 DEFAULT 0;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultimo_juego_fecha date;
+
+    CREATE TABLE IF NOT EXISTS public.transacciones_puntos (
+        id_transaccion serial4 NOT NULL,
+        id_usuario int4,
+        cantidad int4,
+        tipo_transaccion varchar(50),
+        descripcion text,
+        fecha_creacion timestamp DEFAULT NOW(),
+        CONSTRAINT transacciones_puntos_pkey PRIMARY KEY (id_transaccion),
+        CONSTRAINT fk_usuario FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario)
+    );
+
+    CREATE TABLE IF NOT EXISTS public.game_sessions (
+        id_session serial4 PRIMARY KEY,
+        id_usuario int4 REFERENCES usuarios(id_usuario),
+        session_token varchar(64) UNIQUE NOT NULL,
+        fecha_inicio timestamp DEFAULT NOW(),
+        fecha_expiracion timestamp NOT NULL,
+        score_final int4,
+        estado varchar(20) DEFAULT 'active',
+        ip_address varchar(45)
+    );
+
+    CREATE TABLE IF NOT EXISTS public.rewards (
+        id_reward serial4 PRIMARY KEY,
+        nombre varchar(100) NOT NULL,
+        descripcion text,
+        imagen text,
+        costo_puntos int4 NOT NULL,
+        marca varchar(100),
+        stock int4 DEFAULT 0,
+        activo bool DEFAULT true,
+        fecha_creacion timestamp DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS public.user_rewards (
+        id_claim serial4 PRIMARY KEY,
+        id_usuario int4 REFERENCES usuarios(id_usuario),
+        id_reward int4 REFERENCES rewards(id_reward),
+        fecha_canje timestamp DEFAULT NOW(),
+        estado varchar(20) DEFAULT 'pendiente',
+        codigo_canje varchar(20) UNIQUE
     );
 
     UPDATE usuarios SET es_premium = true;
@@ -1292,3 +1358,319 @@ def get_post_comments(id_post: int):
         return []
     finally:
         conn.close()
+
+# ==========================================
+# === SKATE ECONOMY ===
+# ==========================================
+
+@app.post("/api/game/claim-daily")
+def claim_daily_points(claim: ClaimRequest):
+    """Reclamar 10 puntos diarios (una vez por día)"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Validar si el usuario existe
+        cur.execute("SELECT id_usuario, ultima_fecha_juego FROM usuarios WHERE id_usuario = %s", (claim.id_usuario,))
+        usuario = cur.fetchone()
+        
+        if not usuario:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+        # Validar si ya jugó hoy
+        hoy = date.today()
+        if usuario['ultima_fecha_juego'] == hoy:
+            raise HTTPException(status_code=400, detail="Ya jugó hoy")
+        
+        # Iniciar transacción para otorgar puntos
+        # a) Sumar 10 puntos a puntos_actuales y puntos_historicos
+        cur.execute("""
+            UPDATE usuarios 
+            SET puntos_actuales = puntos_actuales + 10,
+                puntos_historicos = puntos_historicos + 10,
+                ultima_fecha_juego = %s
+            WHERE id_usuario = %s
+        """, (hoy, claim.id_usuario))
+        
+        # b) Insertar registro en transacciones_puntos
+        cur.execute("""
+            INSERT INTO transacciones_puntos (id_usuario, cantidad, tipo_transaccion, descripcion)
+            VALUES (%s, 10, 'daily_claim', 'Reclamo diario de puntos')
+        """, (claim.id_usuario,))
+        
+        conn.commit()
+        
+        print(f"🎮 Usuario {claim.id_usuario} reclamó 10 puntos diarios")
+        return {
+            "success": True,
+            "puntos_otorgados": 10,
+            "mensaje": "¡10 puntos otorgados!"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error en claim-daily: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/api/game/leaderboard")
+def get_leaderboard():
+    """Obtener el top 10 de usuarios por puntos históricos"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                id_usuario,
+                nickname,
+                avatar,
+                puntos_historicos,
+                puntos_actuales
+            FROM usuarios
+            ORDER BY puntos_historicos DESC
+            LIMIT 10
+        """)
+        
+        leaderboard = cur.fetchall()
+        print(f"🏆 Obteniendo leaderboard: {len(leaderboard)} usuarios")
+        return leaderboard
+        
+    except Exception as e:
+        print(f"❌ Error obteniendo leaderboard: {e}")
+        return []
+    finally:
+        conn.close()
+
+# ==========================================
+# === GAME SESSIONS & SCORE VALIDATION ===
+# ==========================================
+
+@app.post("/api/game/start-session")
+def start_game_session(req: GameStartRequest):
+    """Iniciar nueva sesión de juego (anti-cheat)"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Límite diario: 20 partidas max
+        cur.execute("""
+            SELECT COUNT(*) as count FROM game_sessions 
+            WHERE id_usuario = %s 
+            AND DATE(fecha_inicio) = CURRENT_DATE
+        """, (req.id_usuario,))
+        
+        if cur.fetchone()['count'] >= 20:
+            raise HTTPException(status_code=429, detail="Límite diario alcanzado (20 partidas)")
+        
+        # Generar token seguro
+        token = secrets.token_urlsafe(32)
+        expiration = datetime.now() + timedelta(minutes=5)
+        
+        cur.execute("""
+            INSERT INTO game_sessions (id_usuario, session_token, fecha_expiracion)
+            VALUES (%s, %s, %s)
+            RETURNING id_session
+        """, (req.id_usuario, token, expiration))
+        
+        session_id = cur.fetchone()['id_session']
+        conn.commit()
+        
+        print(f"🎮 Sesión iniciada: {session_id} para usuario {req.id_usuario}")
+        return {"session_token": token, "expires_in": 300}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error creando sesión: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.post("/api/game/submit-score")
+def submit_game_score(req: ScoreSubmitRequest):
+    """Enviar puntaje del juego con validación anti-cheat"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Validar sesión
+        cur.execute("""
+            SELECT id_session, id_usuario, fecha_expiracion, estado
+            FROM game_sessions
+            WHERE session_token = %s
+        """, (req.session_token,))
+        
+        session = cur.fetchone()
+        if not session:
+            raise HTTPException(status_code=404, detail="Sesión inválida")
+        
+        if session['estado'] != 'active':
+            raise HTTPException(status_code=400, detail="Sesión ya completada")
+        
+        if datetime.now() > session['fecha_expiracion']:
+            raise HTTPException(status_code=400, detail="Sesión expirada")
+        
+        # Anti-cheat: Puntaje máximo realista
+        if req.score > 1000:
+            raise HTTPException(status_code=400, detail="Puntaje sospechoso")
+        
+        # Marcar sesión como completada
+        cur.execute("""
+            UPDATE game_sessions 
+            SET score_final = %s, estado = 'completed'
+            WHERE id_session = %s
+        """, (req.score, session['id_session']))
+        
+        # Otorgar puntos (1 punto por cada 10 del score)
+        points_earned = req.score // 10
+        
+        # Calcular racha
+        hoy = date.today()
+        cur.execute("""
+            SELECT ultimo_juego_fecha, racha_actual
+            FROM usuarios WHERE id_usuario = %s
+        """, (session['id_usuario'],))
+        
+        user_data = cur.fetchone()
+        ultima_fecha = user_data['ultimo_juego_fecha']
+        racha = user_data['racha_actual'] or 0
+        
+        # Lógica de racha
+        if ultima_fecha:
+            dias_diff = (hoy - ultima_fecha).days
+            if dias_diff == 1:
+                racha += 1  # Día consecutivo
+            elif dias_diff > 1:
+                racha = 1   # Racha rota
+        else:
+            racha = 1
+        
+        # Actualizar usuario
+        cur.execute("""
+            UPDATE usuarios 
+            SET puntos_actuales = puntos_actuales + %s,
+                puntos_historicos = puntos_historicos + %s,
+                ultimo_juego_fecha = %s,
+                racha_actual = %s,
+                mejor_racha = GREATEST(mejor_racha, %s)
+            WHERE id_usuario = %s
+        """, (points_earned, points_earned, hoy, racha, racha, session['id_usuario']))
+        
+        # Registrar transacción
+        cur.execute("""
+            INSERT INTO transacciones_puntos (id_usuario, cantidad, tipo_transaccion, descripcion)
+            VALUES (%s, %s, 'game_score', %s)
+        """, (session['id_usuario'], points_earned, f"Puntaje de juego: {req.score}"))
+        
+        conn.commit()
+        
+        print(f"✅ Score {req.score} → {points_earned} puntos. Racha: {racha}")
+        return {
+            "success": True,
+            "points_earned": points_earned,
+            "current_streak": racha,
+            "score": req.score
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error submit-score: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# ==========================================
+# === REWARDS CATALOG & REDEMPTION ===
+# ==========================================
+
+@app.get("/api/game/rewards")
+def get_rewards():
+    """Obtener catálogo de premios disponibles"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT id_reward, nombre, descripcion, imagen, 
+                   costo_puntos, marca, stock
+            FROM rewards
+            WHERE activo = true AND stock > 0
+            ORDER BY costo_puntos ASC
+        """)
+        
+        rewards = cur.fetchall()
+        print(f"🎁 Catálogo: {len(rewards)} premios disponibles")
+        return rewards
+        
+    except Exception as e:
+        print(f"❌ Error obteniendo rewards: {e}")
+        return []
+    finally:
+        conn.close()
+
+@app.post("/api/game/claim-reward")
+def claim_reward(req: RewardClaimRequest):
+    """Canjear puntos por premio"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Obtener costo del premio
+        cur.execute("SELECT costo_puntos, stock, nombre FROM rewards WHERE id_reward = %s", (req.id_reward,))
+        reward = cur.fetchone()
+        
+        if not reward or reward['stock'] <= 0:
+            raise HTTPException(status_code=404, detail="Premio no disponible")
+        
+        # Verificar puntos del usuario
+        cur.execute("SELECT puntos_actuales FROM usuarios WHERE id_usuario = %s", (req.id_usuario,))
+        user = cur.fetchone()
+        
+        if user['puntos_actuales'] < reward['costo_puntos']:
+            raise HTTPException(status_code=400, detail="Puntos insuficientes")
+        
+        # Descontar puntos
+        cur.execute("""
+            UPDATE usuarios 
+            SET puntos_actuales = puntos_actuales - %s
+            WHERE id_usuario = %s
+        """, (reward['costo_puntos'], req.id_usuario))
+        
+        # Reducir stock
+        cur.execute("UPDATE rewards SET stock = stock - 1 WHERE id_reward = %s", (req.id_reward,))
+        
+        # Crear registro de canje
+        codigo = secrets.token_hex(4).upper()
+        cur.execute("""
+            INSERT INTO user_rewards (id_usuario, id_reward, codigo_canje)
+            VALUES (%s, %s, %s)
+            RETURNING id_claim
+        """, (req.id_usuario, req.id_reward, codigo))
+        
+        claim_id = cur.fetchone()['id_claim']
+        
+        # Registrar transacción negativa
+        cur.execute("""
+            INSERT INTO transacciones_puntos (id_usuario, cantidad, tipo_transaccion, descripcion)
+            VALUES (%s, %s, 'reward_claim', %s)
+        """, (req.id_usuario, -reward['costo_puntos'], f"Premio: {reward['nombre']} - Código: {codigo}"))
+        
+        conn.commit()
+        
+        print(f"🎁 Usuario {req.id_usuario} canjeó premio. Código: {codigo}")
+        return {
+            "success": True,
+            "codigo_canje": codigo,
+            "mensaje": f"¡Premio canjeado! Tu código: {codigo}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error canjeando premio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
