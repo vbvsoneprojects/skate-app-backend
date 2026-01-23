@@ -229,6 +229,7 @@ def init_db():
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS racha_actual int4 DEFAULT 0;
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS mejor_racha int4 DEFAULT 0;
     ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ultimo_juego_fecha date;
+    ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS es_admin bool DEFAULT false;
 
     CREATE TABLE IF NOT EXISTS public.transacciones_puntos (
         id_transaccion serial4 NOT NULL,
