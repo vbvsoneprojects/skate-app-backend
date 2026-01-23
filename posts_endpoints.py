@@ -189,3 +189,92 @@ def get_post_comments(id_post: int):
         return []
     finally:
         conn.close()
+
+@app.delete("/api/posts/{id_post}")
+def delete_post(id_post: int, user_id: int):
+    """Eliminar un post (solo dueño o admin)"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verificar permisos
+        cur.execute("""
+            SELECT id_usuario FROM posts WHERE id_post = %s
+        """, (id_post,))
+        post = cur.fetchone()
+        
+        if not post:
+            raise HTTPException(404, "Post no encontrado")
+            
+        # Verificar si es dueño o admin
+        cur.execute("SELECT es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
+        user_result = cur.fetchone()
+        is_admin = user_result['es_admin'] if user_result and user_result.get('es_admin') else False
+        
+        if post['id_usuario'] != user_id and not is_admin:
+            raise HTTPException(403, "No tienes permiso para eliminar este post")
+            
+        # Borrar likes y comentarios asociados
+        cur.execute("DELETE FROM post_likes WHERE id_post = %s", (id_post,))
+        cur.execute("DELETE FROM post_comments WHERE id_post = %s", (id_post,))
+        
+        # Borrar post
+        cur.execute("DELETE FROM posts WHERE id_post = %s", (id_post,))
+        
+        conn.commit()
+        print(f"🗑️ Post {id_post} eliminado por usuario {user_id}")
+        return {"success": True, "msg": "Post eliminado"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error borrando post: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+@app.delete("/api/posts/comments/{id_comment}")
+def delete_post_comment(id_comment: int, user_id: int):
+    """Eliminar un comentario de post (solo dueño o admin)"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verificar permisos
+        cur.execute("""
+            SELECT id_usuario, id_post FROM post_comments WHERE id_comment = %s
+        """, (id_comment,))
+        comment = cur.fetchone()
+        
+        if not comment:
+            raise HTTPException(404, "Comentario no encontrado")
+            
+        # Verificar si es dueño o admin
+        cur.execute("SELECT es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
+        user_result = cur.fetchone()
+        is_admin = user_result['es_admin'] if user_result and user_result.get('es_admin') else False
+        
+        if comment['id_usuario'] != user_id and not is_admin:
+            raise HTTPException(403, "No tienes permiso para eliminar este comentario")
+            
+        # Borrar comentario
+        cur.execute("DELETE FROM post_comments WHERE id_comment = %s", (id_comment,))
+        
+        # Actualizar contador en post
+        cur.execute("""
+            UPDATE posts 
+            SET comments_count = comments_count - 1 
+            WHERE id_post = %s
+        """, (comment['id_post'],))
+        
+        conn.commit()
+        print(f"🗑️ Comentario {id_comment} eliminado por usuario {user_id}")
+        return {"success": True, "msg": "Comentario eliminado"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error borrando comentario: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()

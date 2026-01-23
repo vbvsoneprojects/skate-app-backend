@@ -754,25 +754,65 @@ def crear_duelo(duelo: DueloCreate):
 # ==========================================
 
 @app.delete("/api/spots/{id_spot}")
-def delete_spot(id_spot: int):
+def delete_spot(id_spot: int, user_id: int):
     conn = get_db()
     try:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verificar permisos (solo admin puede borrar spots? O creador?)
+        # Asumamos solo Admin por seguridad para spots, o el creador.
+        # Primero obtenemos el spot para ver quién lo creó (si guardamos eso? spots no tiene id_usuario creador explícito en el modelo SpotNuevo, pero debería tenerlo)
+        # Revisando modelo SpotNuevo: no tiene id_usuario. Revisando tabla spots...
+        # CREATE TABLE spots (id_spot serial4, ...). No tiene id_usuario.
+        # Entonces solo ADMIN puede borrar spots.
+        
+        cur.execute("SELECT es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
+        user_result = cur.fetchone()
+        is_admin = user_result['es_admin'] if user_result and user_result.get('es_admin') else False
+        
+        if not is_admin:
+            raise HTTPException(403, "Solo administradores pueden eliminar spots")
+
         # Borrar comentarios asociados primero
         cur.execute("DELETE FROM comentarios WHERE id_spot = %s", (id_spot,))
         # Borrar spot
         cur.execute("DELETE FROM spots WHERE id_spot = %s", (id_spot,))
+        
+        conn.commit()
         return {"msg": "Spot eliminado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
     finally:
         conn.close()
 
 @app.delete("/api/comments/{id_comentario}")
-def delete_comment(id_comentario: int):
+def delete_comment(id_comentario: int, user_id: int):
     conn = get_db()
     try:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verificar dueño del comentario
+        cur.execute("SELECT id_usuario FROM comentarios WHERE id_comentario = %s", (id_comentario,))
+        comment = cur.fetchone()
+        if not comment:
+            raise HTTPException(404, "Comentario no encontrado")
+            
+        cur.execute("SELECT es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
+        user_result = cur.fetchone()
+        is_admin = user_result['es_admin'] if user_result and user_result.get('es_admin') else False
+        
+        if comment['id_usuario'] != user_id and not is_admin:
+            raise HTTPException(403, "No tienes permiso")
+
         cur.execute("DELETE FROM comentarios WHERE id_comentario = %s", (id_comentario,))
+        conn.commit()
         return {"msg": "Comentario eliminado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
     finally:
         conn.close()
 
