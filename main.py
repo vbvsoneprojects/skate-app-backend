@@ -1454,15 +1454,15 @@ def start_game_session(req: GameStartRequest):
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Límite diario: 20 partidas max
+        # Límite diario: 500 partidas max (AUMENTADO PARA TESTING)
         cur.execute("""
             SELECT COUNT(*) as count FROM game_sessions 
             WHERE id_usuario = %s 
             AND DATE(fecha_inicio) = CURRENT_DATE
         """, (req.id_usuario,))
         
-        if cur.fetchone()['count'] >= 20:
-            raise HTTPException(status_code=429, detail="Límite diario alcanzado (20 partidas)")
+        if cur.fetchone()['count'] >= 500:
+            raise HTTPException(status_code=429, detail="Límite diario alcanzado (500 partidas)")
         
         # Generar token seguro
         token = secrets.token_urlsafe(32)
