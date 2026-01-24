@@ -275,7 +275,7 @@ def init_db():
     );
 
     UPDATE usuarios SET es_premium = true;
-    UPDATE usuarios SET es_admin = true WHERE id_usuario = 1;
+    UPDATE usuarios SET es_admin = true WHERE nickname IN ('alvaro', 'vbvsone');
     """
     cur.execute(script_sql)
     conn.commit()
