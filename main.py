@@ -1,16 +1,13 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 import secrets
 import os
 
-app = FastAPI()
-
-# --- ROUTERS ---
+from database import * # Import everything from our new shared module
 from posts_endpoints import router as posts_router
+
+app = FastAPI()
 
 app.include_router(posts_router)
 
