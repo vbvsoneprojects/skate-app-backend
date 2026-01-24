@@ -211,6 +211,8 @@ def delete_post(id_post: int, user_id: int):
         user_result = cur.fetchone()
         is_admin = user_result['es_admin'] if user_result and user_result.get('es_admin') else False
         
+        print(f"🛑 DEBUG DELETE: PostOwner={post['id_usuario']}, RequestUser={user_id}, IsAdmin={is_admin}")
+
         if post['id_usuario'] != user_id and not is_admin:
             raise HTTPException(403, "No tienes permiso para eliminar este post")
             
