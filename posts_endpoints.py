@@ -7,7 +7,7 @@ router = APIRouter()
 # 📸 SOCIAL FEED - POSTS API
 # ==========================================
 
-@app.get("/api/posts/")
+@router.get("/api/posts/")
 def get_posts(offset: int = 0, limit: int = 20):
     """Obtener posts del feed social (cronológico)"""
     conn = get_db()
@@ -40,7 +40,7 @@ def get_posts(offset: int = 0, limit: int = 20):
     finally:
         conn.close()
 
-@app.post("/api/posts/")
+@router.post("/api/posts/")
 def create_post(post: PostNuevo):
     """Crear un nuevo post en el feed"""
     conn = get_db()
@@ -67,7 +67,7 @@ def create_post(post: PostNuevo):
     finally:
         conn.close()
 
-@app.post("/api/posts/{id_post}/like")
+@router.post("/api/posts/{id_post}/like")
 def toggle_like(id_post: int, like: PostLike):
     """Dar o quitar like a un post"""
     conn = get_db()
@@ -129,7 +129,7 @@ def toggle_like(id_post: int, like: PostLike):
     finally:
         conn.close()
 
-@app.post("/api/posts/{id_post}/comment")
+@router.post("/api/posts/{id_post}/comment")
 def add_post_comment(id_post: int, comment: PostComment):
     """Agregar comentario a un post"""
     conn = get_db()
@@ -165,7 +165,7 @@ def add_post_comment(id_post: int, comment: PostComment):
     finally:
         conn.close()
 
-@app.get("/api/posts/{id_post}/comments")
+@router.get("/api/posts/{id_post}/comments")
 def get_post_comments(id_post: int):
     """Obtener comentarios de un post"""
     conn = get_db()
@@ -194,7 +194,7 @@ def get_post_comments(id_post: int):
     finally:
         conn.close()
 
-@app.delete("/api/posts/{id_post}")
+@router.delete("/api/posts/{id_post}")
 def delete_post(id_post: int, user_id: int):
     """Eliminar un post (solo dueño o admin)"""
     conn = get_db()
@@ -243,7 +243,7 @@ def delete_post(id_post: int, user_id: int):
     finally:
         conn.close()
 
-@app.delete("/api/posts/comments/{id_comment}")
+@router.delete("/api/posts/comments/{id_comment}")
 def delete_post_comment(id_comment: int, user_id: int):
     """Eliminar un comentario de post (solo dueño o admin)"""
     conn = get_db()
