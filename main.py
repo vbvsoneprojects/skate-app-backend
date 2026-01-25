@@ -291,6 +291,18 @@ init_db()
 def read_root():
     return {"mensaje": "API Skate v8.0 - Live en Render 🚀"}
 
+@app.get("/api/debug/admins")
+def debug_admins():
+    """Endpoint temporal para verificar usuarios admin"""
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT id_usuario, nickname, es_admin FROM usuarios WHERE es_admin = true OR LOWER(nickname) IN ('alvaro', 'vbvsone')")
+        return cur.fetchall()
+    finally:
+        conn.close()
+
+
 # ==========================================
 # 📡 ZONA GPS (LO NUEVO)
 # ==========================================
@@ -557,7 +569,7 @@ def login(user: UserAuth):
                 
                 # --- AGREGA ESTAS LÍNEAS NUEVAS ---
                 "es_premium": u['es_premium'] if u['es_premium'] else False,
-                "es_admin": u['es_admin'] if u.get('es_admin') else False,
+                "es_admin": u.get('es_admin', False) or False,
                 # ----------------------------------
 
                 "edad": u['edad'] if u['edad'] else 0,
