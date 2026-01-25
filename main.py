@@ -770,13 +770,12 @@ def delete_spot(id_spot: int, user_id: int):
         # CREATE TABLE spots (id_spot serial4, ...). No tiene id_usuario.
         # Entonces solo ADMIN puede borrar spots.
         
-        cur.execute("SELECT nickname, es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
+        cur.execute("SELECT es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
         user_result = cur.fetchone()
         
         is_admin = False
         if user_result:
-            nickname = user_result['nickname'].lower() if user_result['nickname'] else ""
-            is_admin = user_result['es_admin'] or nickname in ['alvaro', 'vbvsone']
+            is_admin = user_result['es_admin'] or False
         
         if not is_admin:
             raise HTTPException(403, "Solo administradores pueden eliminar spots")
@@ -807,13 +806,12 @@ def delete_comment(id_comentario: int, user_id: int):
         if not comment:
             raise HTTPException(404, "Comentario no encontrado")
             
-        cur.execute("SELECT nickname, es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
+        cur.execute("SELECT es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
         user_result = cur.fetchone()
         
         is_admin = False
         if user_result:
-            nickname = user_result['nickname'].lower() if user_result['nickname'] else ""
-            is_admin = user_result['es_admin'] or nickname in ['alvaro', 'vbvsone']
+            is_admin = user_result['es_admin'] or False
         
         if comment['id_usuario'] != user_id and not is_admin:
             raise HTTPException(403, "No tienes permiso")

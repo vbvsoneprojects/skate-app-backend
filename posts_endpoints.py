@@ -210,16 +210,13 @@ def delete_post(id_post: int, user_id: int):
         if not post:
             raise HTTPException(404, "Post no encontrado")
             
-        # Verificar si es dueño o admin
-        # Verificar si es dueño o admin
-        cur.execute("SELECT nickname, es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
+        # Verificar si es admin desde la base de datos
+        cur.execute("SELECT es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
         user_result = cur.fetchone()
         
         is_admin = False
         if user_result:
-            # Check DB flag OR hardcoded usernames (Case Insensitive)
-            nickname = user_result['nickname'].lower() if user_result['nickname'] else ""
-            is_admin = user_result['es_admin'] or nickname in ['alvaro', 'vbvsone']
+            is_admin = user_result['es_admin'] or False
 
         if post['id_usuario'] != user_id and not is_admin:
             raise HTTPException(403, "No tienes permiso para eliminar este post")
@@ -259,14 +256,13 @@ def delete_post_comment(id_comment: int, user_id: int):
         if not comment:
             raise HTTPException(404, "Comentario no encontrado")
             
-        # Verificar si es dueño o admin
-        cur.execute("SELECT nickname, es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
+        # Verificar si es admin desde la base de datos
+        cur.execute("SELECT es_admin FROM usuarios WHERE id_usuario = %s", (user_id,))
         user_result = cur.fetchone()
         
         is_admin = False
         if user_result:
-            nickname = user_result['nickname'].lower() if user_result['nickname'] else ""
-            is_admin = user_result['es_admin'] or nickname in ['alvaro', 'vbvsone']
+            is_admin = user_result['es_admin'] or False
         
         if comment['id_usuario'] != user_id and not is_admin:
             raise HTTPException(403, "No tienes permiso para eliminar este comentario")
