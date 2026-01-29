@@ -1589,16 +1589,19 @@ def submit_game_score(req: ScoreSubmitRequest):
         # Otorgar puntos (1 punto por cada 1 de score, directo)
         points_earned = req.score 
         
-        # Calcular racha
+        # Calcular racha y record
         hoy = date.today()
         cur.execute("""
-            SELECT ultimo_juego_fecha, racha_actual
+            SELECT ultimo_juego_fecha, racha_actual, mejor_puntaje
             FROM usuarios WHERE id_usuario = %s
         """, (session['id_usuario'],))
         
         user_data = cur.fetchone()
         ultima_fecha = user_data['ultimo_juego_fecha']
         racha = user_data['racha_actual'] or 0
+        current_best = user_data['mejor_puntaje'] or 0
+        
+        is_new_record = req.score > current_best
         
         # Lógica de racha
         if ultima_fecha:
@@ -1630,12 +1633,13 @@ def submit_game_score(req: ScoreSubmitRequest):
         
         conn.commit()
         
-        print(f"✅ Score {req.score} → {points_earned} puntos. Racha: {racha}")
+        print(f"✅ Score {req.score} → {points_earned} puntos. Racha: {racha}. Nuevo Record: {is_new_record}")
         return {
             "success": True,
             "points_earned": points_earned,
             "current_streak": racha,
-            "score": req.score
+            "score": req.score,
+            "new_record": is_new_record
         }
         
     except HTTPException:
