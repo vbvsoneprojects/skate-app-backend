@@ -1794,7 +1794,7 @@ def submit_score(req: ScoreSubmitRequest):
             raise HTTPException(401, "Sesión inválida o expirada")
             
         user_id = session['id_usuario']
-        points_earned = req.score // 10 # 1 punto cada 10 score
+        points_earned = req.score # 1 punto cada 1 score (CORREGIDO DUPLICADO)
         
         # Iniciar transacción
         cur.execute("BEGIN")
@@ -1836,9 +1836,10 @@ def submit_score(req: ScoreSubmitRequest):
                 puntos_historicos = COALESCE(puntos_historicos, 0) + %s,
                 racha_actual = %s,
                 mejor_racha = GREATEST(mejor_racha, %s),
-                ultima_fecha_juego = %s
+                ultima_fecha_juego = %s,
+                mejor_puntaje = GREATEST(COALESCE(mejor_puntaje, 0), %s)
             WHERE id_usuario = %s
-        """, (points_earned, points_earned, new_streak, new_streak, today, user_id))
+        """, (points_earned, points_earned, new_streak, new_streak, today, req.score, user_id))
         
         conn.commit()
         
