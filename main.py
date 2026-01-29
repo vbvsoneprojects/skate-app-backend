@@ -1585,8 +1585,8 @@ def submit_game_score(req: ScoreSubmitRequest):
             WHERE id_session = %s
         """, (req.score, session['id_session']))
         
-        # Otorgar puntos (1 punto por cada 10 del score)
-        points_earned = req.score // 10
+        # Otorgar puntos (1 punto por cada 1 de score, directo)
+        points_earned = req.score 
         
         # Calcular racha
         hoy = date.today()
@@ -1616,9 +1616,10 @@ def submit_game_score(req: ScoreSubmitRequest):
                 puntos_historicos = puntos_historicos + %s,
                 ultimo_juego_fecha = %s,
                 racha_actual = %s,
-                mejor_racha = GREATEST(mejor_racha, %s)
+                mejor_racha = GREATEST(mejor_racha, %s),
+                mejor_puntaje = GREATEST(COALESCE(mejor_puntaje, 0), %s) 
             WHERE id_usuario = %s
-        """, (points_earned, points_earned, hoy, racha, racha, session['id_usuario']))
+        """, (points_earned, points_earned, hoy, racha, racha, req.score, session['id_usuario']))
         
         # Registrar transacción
         cur.execute("""
@@ -1932,9 +1933,9 @@ def get_leaderboard():
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
-            SELECT id_usuario, nickname, avatar, comuna, puntos_historicos, mejor_racha
+            SELECT id_usuario, nickname, avatar, comuna, puntos_historicos, mejor_racha, mejor_puntaje
             FROM usuarios
-            ORDER BY puntos_historicos DESC
+            ORDER BY mejor_puntaje DESC NULLS LAST
             LIMIT 10
         """)
         return cur.fetchall()
