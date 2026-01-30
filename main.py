@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import secrets
 import os
 
@@ -16,7 +16,11 @@ app.add_middleware(
     allow_origins=[
         "*",  # Permitir todos los orígenes (para desarrollo)
         "https://skate-app-frontend.onrender.com",  # Frontend en producción
-        "http://localhost:*",  # Desarrollo local
+        "http://localhost",
+        "http://localhost:8080",
+        "http://localhost:8081",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:8081",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -24,7 +28,9 @@ app.add_middleware(
 )
 
 # 1. Configuración de Base de Datos
-DATABASE_URL = os.environ.get('DATABASE_URL', "postgres://neondb_owner:npg_6LqS3tjoUAFC@ep-broad-tree-ah3h6jb0-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require")
+# 1. Configuración de Base de Datos
+# DATABASE_URL is imported from database.py
+print(f"🔌 Conectando a Base de Datos: {DATABASE_URL}")
 
 # 2. DEFINICIÓN DE MODELOS (Lo que faltaba)
 class UserAuth(BaseModel):
@@ -118,6 +124,7 @@ class RewardClaimRequest(BaseModel):
 
 # 3. FUNCIONES DE CONEXIÓN
 def get_db():
+    print(f"🔌 [DEBUG] get_db using URL: {DATABASE_URL}")
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
     return conn
@@ -576,7 +583,11 @@ def login(user: UserAuth):
                 "comuna": u['comuna'] if u['comuna'] else "",
                 "crew": u['crew'] if u['crew'] else "",
                 "stance": u['stance'] if u['stance'] else "Regular",
-                "trayectoria": u['trayectoria'] if u['trayectoria'] else ""
+                "trayectoria": u['trayectoria'] if u['trayectoria'] else "",
+                
+                # --- ECONOMÍA ---
+                "puntos_actuales": u['puntos_actuales'] if u['puntos_actuales'] else 0,
+                "puntos_historicos": u['puntos_historicos'] if u['puntos_historicos'] else 0,
             }
         else:
             raise HTTPException(401, "Credenciales incorrectas")
@@ -590,8 +601,11 @@ def register(user: UserAuth):
         cur = conn.cursor()
         cur.execute("INSERT INTO usuarios (nickname, password) VALUES (%s, %s)", (user.username, user.password))
         return {"msg": "OK"}
-    except:
-        return {"msg": "Error"} # Simplificado
+    except Exception as e:
+        print(f"❌ Error Register: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, str(e))
     finally:
         conn.close()
 
@@ -1477,33 +1491,7 @@ def claim_daily_points(claim: ClaimRequest):
     finally:
         conn.close()
 
-@app.get("/api/game/leaderboard")
-def get_leaderboard():
-    """Obtener el top 10 de usuarios por puntos históricos"""
-    conn = get_db()
-    try:
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
-            SELECT 
-                id_usuario,
-                nickname,
-                avatar,
-                puntos_historicos,
-                puntos_actuales
-            FROM usuarios
-            ORDER BY puntos_historicos DESC
-            LIMIT 10
-        """)
-        
-        leaderboard = cur.fetchall()
-        print(f"🏆 Obteniendo leaderboard: {len(leaderboard)} usuarios")
-        return leaderboard
-        
-    except Exception as e:
-        print(f"❌ Error obteniendo leaderboard: {e}")
-        return []
-    finally:
-        conn.close()
+
 
 # ==========================================
 # === GAME SESSIONS & SCORE VALIDATION ===
@@ -1591,11 +1579,34 @@ def submit_game_score(req: ScoreSubmitRequest):
         
         # Calcular racha y record
         hoy = date.today()
-        cur.execute("""
-            SELECT ultimo_juego_fecha, racha_actual, mejor_puntaje
-            FROM usuarios WHERE id_usuario = %s
-        """, (session['id_usuario'],))
         
+        # --- NUEVA LÓGICA ANTI-FARMING (Límite Diario) ---
+        MAX_DIARIO = 500
+        cur.execute("""
+            SELECT COALESCE(SUM(cantidad), 0) as total
+            FROM transacciones_puntos 
+            WHERE id_usuario = %s 
+              AND tipo_transaccion = 'game_score' 
+              AND fecha_creacion::date = CURRENT_DATE
+        """, (session['id_usuario'],))
+        row = cur.fetchone()
+        puntos_hoy = row['total'] if row else 0
+        
+        points_earned = req.score
+        puntos_restantes = MAX_DIARIO - puntos_hoy
+        
+        msg_limit = ""
+        if puntos_restantes <= 0:
+            points_earned = 0
+            msg_limit = " (Límite diario alcanzado)"
+        elif points_earned > puntos_restantes:
+            points_earned = puntos_restantes
+            msg_limit = f" (Parcial {points_earned} pts)"
+            
+        print(f"💰 Anti-Farming: Hoy {puntos_hoy}/{MAX_DIARIO}. Gana: {points_earned}{msg_limit}")
+        # -------------------------------------------------
+
+        cur.execute("SELECT ultimo_juego_fecha, racha_actual, mejor_puntaje FROM usuarios WHERE id_usuario = %s", (session['id_usuario'],))
         user_data = cur.fetchone()
         ultima_fecha = user_data['ultimo_juego_fecha']
         racha = user_data['racha_actual'] or 0
@@ -1614,6 +1625,7 @@ def submit_game_score(req: ScoreSubmitRequest):
             racha = 1
         
         # Actualizar usuario
+        # IMPORTANTE: mejor_puntaje se actualiza SIEMPRE si es record, aunque points_earned sea 0
         cur.execute("""
             UPDATE usuarios 
             SET puntos_actuales = puntos_actuales + %s,
@@ -1625,11 +1637,12 @@ def submit_game_score(req: ScoreSubmitRequest):
             WHERE id_usuario = %s
         """, (points_earned, points_earned, hoy, racha, racha, req.score, session['id_usuario']))
         
-        # Registrar transacción
-        cur.execute("""
-            INSERT INTO transacciones_puntos (id_usuario, cantidad, tipo_transaccion, descripcion)
-            VALUES (%s, %s, 'game_score', %s)
-        """, (session['id_usuario'], points_earned, f"Puntaje de juego: {req.score}"))
+        # Registrar transacción SOLO si ganó puntos
+        if points_earned > 0:
+            cur.execute("""
+                INSERT INTO transacciones_puntos (id_usuario, cantidad, tipo_transaccion, descripcion)
+                VALUES (%s, %s, 'game_score', %s)
+            """, (session['id_usuario'], points_earned, f"Puntaje de juego: {req.score}"))
         
         conn.commit()
         
