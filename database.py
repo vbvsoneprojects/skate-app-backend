@@ -89,10 +89,16 @@ class RewardClaimRequest(BaseModel):
     id_reward: int
 
 # --- DATABASE CONNECTION ---
-# DATABASE_URL = os.environ.get('DATABASE_URL', "postgres://neondb_owner:npg_6LqS3tjoUAFC@ep-broad-tree-ah3h6jb0-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require")
-DATABASE_URL = "postgresql://skateuser:skatepass@localhost:5432/skate_app"
+# --- DATABASE CONNECTION ---
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL)
+    if not DATABASE_URL:
+        # Fallback para local development si no hay env var
+        return psycopg2.connect("postgresql://skateuser:skatepass@localhost:5432/skate_app")
+    
+    # Render a veces usa postgres:// que es legacy, lo normalizamos
+    final_url = DATABASE_URL.replace("postgres://", "postgresql://")
+    conn = psycopg2.connect(final_url)
     conn.autocommit = True
     return conn
