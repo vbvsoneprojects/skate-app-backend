@@ -1,0 +1,40 @@
+services:
+  # 🧠 BACKEND (Docker)
+  - type: web
+    name: skate-backend
+    runtime: docker
+    repo: https://github.com/vbvsoneprojects/skate-app-backend
+    branch: main
+    plan: starter # Requires Paid Plan to stay awake
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: skate_db_prod # Will link to Render DB
+          property: connectionString
+      - key: PYTHONUNBUFFERED
+        value: 1
+
+  # 🎨 FRONTEND (Static Site + Flutter)
+  - type: web
+    name: skate-frontend
+    env: static
+    repo: https://github.com/vbvsoneprojects/skate-app-frontend
+    branch: main
+    buildCommand: |
+      # Install Flutter (if not present), but Render Static Site usually for JS
+      # Since Render doesn't support Flutter Native Build easily in Static env without custom Docker,
+      # We will use Docker for Frontend too OR simple Static Site assuming user uploads logic?
+      # WAIT: Render "Static Site" builds Node/Jekyll. Flutter requires Dart.
+      # Strategy: We use a Dockerfile for Frontend to build Nginx serving files.
+      echo "Using Dockerfile for Frontend to handle Flutter Build"
+    runtime: docker
+    plan: starter
+    dockerCommand: ./Dockerfile
+
+databases:
+  - name: skate_db_prod
+    plan: starter # Production DB
+    databaseName: skate_app
+    user: skate_admin
