@@ -6,9 +6,16 @@ import os
 
 from database import * # Import everything from our new shared module
 from posts_endpoints import router as posts_router
+from migrations import run_migrations
 
 app = FastAPI()
 
+# --- STARTUP EVENT ---
+@app.on_event("startup")
+def on_startup():
+    run_migrations()
+
+# --- CORS ---
 app.include_router(posts_router)
 
 app.add_middleware(
