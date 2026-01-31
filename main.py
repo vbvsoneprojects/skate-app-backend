@@ -7,6 +7,7 @@ import os
 from database import * # Import everything from our new shared module
 from posts_endpoints import router as posts_router
 from migrations import run_migrations
+from debug_endpoints import router as debug_router
 
 app = FastAPI()
 
@@ -17,6 +18,7 @@ def on_startup():
 
 # --- CORS ---
 app.include_router(posts_router)
+app.include_router(debug_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1645,12 +1647,16 @@ def submit_game_score(req: ScoreSubmitRequest):
             WHERE id_usuario = %s
         """, (points_earned, points_earned, points_earned, hoy, racha, racha, req.score, session['id_usuario']))
         
-        # Registrar transacción SOLO si ganó puntos
+        # Registrar transacción (DEFENSIVO: Si falla, no revertir los puntos)
         if points_earned > 0:
-            cur.execute("""
-                INSERT INTO transacciones_puntos (id_usuario, cantidad, tipo_transaccion, descripcion)
-                VALUES (%s, %s, 'game_score', %s)
-            """, (session['id_usuario'], points_earned, f"Puntaje de juego: {req.score}"))
+            try:
+                cur.execute("""
+                    INSERT INTO transacciones_puntos (id_usuario, cantidad, tipo_transaccion, descripcion)
+                    VALUES (%s, %s, 'game_score', %s)
+                """, (session['id_usuario'], points_earned, f"Puntaje de juego: {req.score}"))
+            except Exception as e_trans:
+                print(f"⚠️ Error guardando historial (pero puntos guardados): {e_trans}")
+                # No hacemos rollback aquí, dejamos que pase al commit
         
         conn.commit()
         
