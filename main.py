@@ -1625,6 +1625,10 @@ def submit_game_score(req: ScoreSubmitRequest):
         
         # Lógica de racha
         if ultima_fecha:
+            # SAFETY CAST: Ensure we compare date with date
+            if isinstance(ultima_fecha, datetime):
+                ultima_fecha = ultima_fecha.date()
+                
             dias_diff = (hoy - ultima_fecha).days
             if dias_diff == 1:
                 racha += 1  # Día consecutivo
