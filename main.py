@@ -7,7 +7,6 @@ import os
 from database import * # Import everything from our new shared module
 from posts_endpoints import router as posts_router
 from migrations import run_migrations
-from debug_endpoints import router as debug_router
 
 app = FastAPI()
 
@@ -18,7 +17,6 @@ def on_startup():
 
 # --- CORS ---
 app.include_router(posts_router)
-app.include_router(debug_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1625,8 +1623,8 @@ def submit_game_score(req: ScoreSubmitRequest):
         
         # Lógica de racha
         if ultima_fecha:
-            # SAFETY CAST: Ensure we compare date with date
-            if isinstance(ultima_fecha, datetime):
+            # SAFETY CAST: Duck typing works best
+            if hasattr(ultima_fecha, 'date'):
                 ultima_fecha = ultima_fecha.date()
                 
             dias_diff = (hoy - ultima_fecha).days
