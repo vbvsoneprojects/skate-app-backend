@@ -38,11 +38,21 @@ def run_migrations():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS transacciones_puntos (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER REFERENCES usuarios(id),
+                user_id INTEGER REFERENCES usuarios(id_usuario),
                 puntos INTEGER,
                 tipo VARCHAR(50),
-                fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                descripcion TEXT, 
+                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+        """)
+
+        # 🔄 MIGRA DATA LEGACY (CRÍTICO)
+        # Si puntos_actuales es 0 pero saldo_puntos (legacy) tiene valor, lo copiamos.
+        print("🔄 Syncing legacy points...")
+        cur.execute("""
+            UPDATE usuarios 
+            SET puntos_actuales = saldo_puntos 
+            WHERE puntos_actuales = 0 AND saldo_puntos > 0;
         """)
 
         # 3. Crear indices básicos (Optimización solicitada)

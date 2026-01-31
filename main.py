@@ -1636,13 +1636,14 @@ def submit_game_score(req: ScoreSubmitRequest):
         cur.execute("""
             UPDATE usuarios 
             SET puntos_actuales = puntos_actuales + %s,
+                saldo_puntos = saldo_puntos + %s,  -- KEEP LEGACY IN SYNC
                 puntos_historicos = puntos_historicos + %s,
                 ultimo_juego_fecha = %s,
                 racha_actual = %s,
                 mejor_racha = GREATEST(mejor_racha, %s),
                 mejor_puntaje = GREATEST(COALESCE(mejor_puntaje, 0), %s) 
             WHERE id_usuario = %s
-        """, (points_earned, points_earned, hoy, racha, racha, req.score, session['id_usuario']))
+        """, (points_earned, points_earned, points_earned, hoy, racha, racha, req.score, session['id_usuario']))
         
         # Registrar transacción SOLO si ganó puntos
         if points_earned > 0:
